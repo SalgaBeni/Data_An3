@@ -1,0 +1,354 @@
+---
+title: "D_An3_hw1"
+output: pdf_document
+---
+
+## Introduction
+This analysis aims to predict the possible hourly wage of lawyers and what kind of factors affect by how much this amount, like age, education level, sex, race, and many others. For the sake of the analysis, the cps_data dataset was used that includes information on many thousands of people.
+
+## Data cleaning
+After the data has been loaded from osf.io, first I checked the summary of the variables (e.g. "earnwke", "uhours", "grade92", age, female or not) I intended to use in my analysis. As the first step, I filtered the dataset for lawyers and then I substituted the NA values with "Missing" strings.
+Second, I created variables for hourly wages, the logarithm of an hourly wage, dummy variables for females, and the square of age and education level (grade92). I also created a dummy variable for every different citizenship.
+Finally, I applied a filter to set only those values, which have a connection with lawyers.
+
+## Analysis
+Before the analysis, I checked the hourly wage observations (also checked its logarithm) for extreme values with a histogram graph, but I did not find any. After that, I checked the pattern of association between hourly wage and the age of workers. The graph shows what we can expect: As the worker gets older they started to earn more and more. The interesting part of it is that the slope of the curve is much smaller than I expected.
+At the start of the prediction, I created 4 models: the first model investigates the relationship of hourly wage and the age of the worker. The second model reviews also the connection of the education level. The third also checks variables like race, number of children, and sex. The last model reviews also the influence of different citizenships.
+The evaluation of these models shows that the values of AIC and BIC of the models are decreasing. At the earlier stage of the analysis, I added too many variables, since the AIC and BIC were increasing by model 4, but I changed it until it became less than model 3. RMSE is between 15.9 and 15.5, but it is also decreasing. R2 is also quite close to 1 in terms of 2, 3, and 4 models. In the case of the first model, it is only 0.35.
+By cross-validation, the p5 graph shows the prediction performance of the models and it is decreasing dramatically from the first model to the second, but interestingly it strat to raise back up, so after the second model I got worse, higher RMSE. For the prediction, I would use only the second and third models, but in this analysis, I continued to work with all 4 models to see the results as well.
+By the actual prediction, I wanted to check the possible wage of a lawyer, who is white 35 years old, has one child, native American. With a higher confidence interval (95%) the lawyer would earn around 60-62 dollars and by lower confidence interval this number changed around 49 -52 dollars.
+```{r setup, include=FALSE}
+rm(list = ls())
+
+library(tidyverse)
+library(modelsummary)
+library(fixest)
+library(caret)
+library(grid)
+library(lspline)
+library(cowplot)
+library(boot)
+library(estimatr)
+library(huxtable)
+library(stargazer)
+
+
+theme_set(theme_bw(base_size=16))
+
+# Load data:
+cps_data <- read_csv("https://osf.io/4ay9x/download")
+
+# look into cps_data
+glimpse(cps_data)
+```
+
+
+```{r, echo=FALSE, include=FALSE}
+
+# check frequency of different work types (remove things, based on this always)
+datasummary( ind02 ~ N + Percent() , data = cps_data)
+
+# filter for lawyers
+cps_data <- cps_data %>%
+  filter(cps_data$occ2012 == 2100)
+
+# manage missing: set as factors
+cps_data$unioncov <- fct_explicit_na(cps_data$unioncov, na_level = "Missing")
+
+#generate variables(female, earnings / hour, log earnings/hour)
+cps_data <- cps_data %>% mutate(female=as.numeric(sex==2)) %>%
+                         mutate(wageh=earnwke/uhours) %>% 
+                         mutate(lnwage=log(wageh)) %>% 
+                         mutate(agesq=age^2) %>% 
+                         mutate(agecu=age^3) %>% 
+                         mutate(grade92sq=grade92^2)
+
+cps_data$gen <- as.numeric(cps_data$sex)
+cps_data$gen[cps_data$gen==1] <- "Male"
+cps_data$gen[cps_data$gen==2] <- "Female"
+cps_data$gen <- as.character(cps_data$gen)
+
+# check if there are others then lawyers
+datasummary(ind02 ~ N + Percent(), data = cps_data )
+
+# drop unwanted values
+cps_data <- cps_data %>% filter(ind02 %in% c("Legal services (5411)", "Justice, public order, and safety activities (922, pt. 92115)", "Investigation and security services (5616)", "National security and international affairs (928)", "Executive offices and legislative bodies (92111, 92112, 92114, pt. 92115)", "Business, professional, political, and similar organizations (8139 exc. 81393)"))
+
+# check frequency of nationality
+datasummary(prcitshp ~ N + Percent(), data = cps_data )
+
+# drop non US Citizens
+cps_data <- cps_data %>% filter(!prcitshp %in% c("Foreign Born, Not a US Citizen"))
+
+# create dummy variable
+cps_data <- cps_data %>%
+  mutate(cit_foreign = ifelse(prcitshp == "Foreign Born, US Cit By Naturalization", 1,0),
+         cit_N_abroad = ifelse(prcitshp == "Native, Born Abroad Of US Parent(s)", 1,0),
+         cit_N_outlay_A = ifelse(prcitshp == "Native, Born in PR or US Outlying Area", 1,0),
+         cit_N = ifelse(prcitshp == "Native, Born In US", 1,0))
+
+
+# check frequency of class
+datasummary(class ~ N + Percent(), data = cps_data )
+
+# filter out too low wages
+cps_data <- cps_data %>% filter(wageh>=1)
+
+# Summary statistics on Edu level and log of earnings per hour
+# data summary
+datasummary( grade92 + lnwage + female + race + age + agesq + agecu ~
+               Mean + Median + Min + Max + P25 + P75 + N , data = cps_data)
+
+# number of male and female
+male <- cps_data %>%
+  filter(cps_data$sex == 1)
+
+female <- cps_data %>%
+  filter(cps_data$sex == 2)
+
+```
+
+```{r echo = F, warning=FALSE, fig.height = 3, fig.align="center"}
+#check the outcome variable
+p1 <- ggplot(data=cps_data, aes(x=wageh)) +
+  geom_histogram(aes(y = (..count..)/sum(..count..)),
+                 fill = 'navyblue', color = 'white', size = 0.25, alpha = 0.8,  show.legend=F, na.rm=TRUE) +
+  labs(x = "Wage(US dollars)",y = "Percent") +
+  expand_limits(x = 0.01, y = 0.01) +
+  scale_y_continuous(expand = c(0.01,0.01),labels = scales::percent_format(accuracy = 1))
+p1
+
+# b) log of price
+p2 <- ggplot(data=cps_data, aes(x=lnwage)) +
+  geom_histogram(aes(y = (..count..)/sum(..count..)), binwidth = 0.2, boundary=0,
+                 fill = 'navyblue', color = 'white', size = 0.25, alpha = 0.8,  show.legend=F, na.rm=TRUE) +
+  labs(x = "ln(Wage, US dollars)",y = "Percent") +
+  scale_y_continuous(expand = c(0.01,0.01),labels = scales::percent_format(accuracy = 0.1))
+p2
+
+```
+
+```{r echo = F, warning=FALSE, fig.height = 3, fig.align="center"}
+
+# Lowess vs. quadratic specification with age
+p4 <- ggplot(data=cps_data, aes(x=age,y=wageh)) +
+  geom_smooth( aes(colour='red'), method="loess", formula = y ~ x,se=F, size=1) +
+  geom_smooth( aes(colour='black'), method="lm", formula = y ~ poly(x,2) , se=F, size=1) +
+  geom_point( aes( y=wageh ) , color = 'blue', size = 1,  shape = 16, alpha = 0.8, show.legend=F, na.rm = TRUE) + 
+  labs(x = "Age (years)",y = "Hourly Wage(US dollars)") +
+  scale_color_manual(name="", values=c('red','black'),labels=c("Lowess in age","Quadratic in age")) +
+  theme(legend.position = c(0.5,0.9),
+        legend.direction = "horizontal",
+        legend.background = element_blank(),
+        legend.box.background = element_rect(color = "white"))
+p4
+
+```
+
+
+```{r echo = F, warning=FALSE, fig.height = 3, fig.align="center"}
+
+# Models for regressions
+model1 <- as.formula(wageh ~ age + agesq)
+model2 <- as.formula(wageh ~ age + agesq + grade92)
+model3 <- as.formula(wageh ~ age + agesq + grade92 + grade92sq + female + ownchild + race)
+model4 <- as.formula(wageh ~ age + agesq + agecu + grade92 + grade92sq + female*age + cit_N*age)
+
+
+#regressions
+reg1 <- feols(model1, data=cps_data, vcov = 'hetero')
+reg2 <- feols(model2, data=cps_data, vcov = 'hetero')
+reg3 <- feols(model3, data=cps_data, vcov = 'hetero')
+reg4 <- feols(model4, data=cps_data, vcov = 'hetero')
+
+# evaluation of the models: using all the sample
+fitstat_register("k", function(x){length( x$coefficients ) - 1}, "No. Variables")
+etable( reg1 , reg2 , reg3 , reg4, fitstat = c('aic','bic','rmse','r2','ar2','n','k') )
+
+```
+
+```{r echo = F, warning=FALSE, fig.height = 3, fig.align="center"}
+
+# Cross-validation
+k <- 5
+
+set.seed(13505)
+cv1 <- train(model1, cps_data, method = "lm", trControl = trainControl(method = "cv", number = k))
+
+# Check the output:
+cv1
+summary(cv1)
+cv1$results
+cv1$resample
+
+set.seed(13505)
+cv2 <- train(model2, cps_data, method = "lm", trControl = trainControl(method = "cv", number = k))
+set.seed(13505)
+cv3 <- train(model3, cps_data, method = "lm", trControl = trainControl(method = "cv", number = k), na.action = "na.omit")
+set.seed(13505)
+cv4 <- train(model4, cps_data, method = "lm", trControl = trainControl(method = "cv", number = k), na.action = "na.omit")
+
+# Calculate RMSE for each fold and the average RMSE as well
+cv <- c("cv1", "cv2", "cv3", "cv4")
+rmse_cv <- c()
+
+for(i in 1:length(cv)){
+  rmse_cv[i] <- sqrt((get(cv[i])$resample[[1]][1]^2 +
+                       get(cv[i])$resample[[1]][2]^2 +
+                       get(cv[i])$resample[[1]][3]^2 +
+                       get(cv[i])$resample[[1]][4]^2)/4)
+}
+
+# summarize results
+cv_mat <- data.frame(rbind(cv1$resample[4], "Average"),
+           rbind(cv1$resample[1], rmse_cv[1]),
+           rbind(cv2$resample[1], rmse_cv[2]),
+           rbind(cv3$resample[1], rmse_cv[3]),
+           rbind(cv4$resample[1], rmse_cv[4]))
+
+colnames(cv_mat)<-c("Resample","Model1", "Model2", "Model3", "Model4")
+cv_mat 
+
+```
+
+```{r echo = F, warning=FALSE, fig.height = 3, fig.align="center"}
+
+# model complexity and RMSE performance
+m_comp <- c()
+models <- c("reg1", "reg2", "reg3", "reg4")
+for( i in 1 : length(cv) ){
+  m_comp[ i ] <- length( get( models[i] )$coefficient  - 1 ) 
+}
+
+m_comp <- tibble( model = models , 
+                  complexity = m_comp,
+                  RMSE = rmse_cv )
+
+p5 <- ggplot( m_comp , aes( x = complexity , y = RMSE ) ) +
+  geom_point(color='red',size=2) +
+  geom_line(color='blue',size=0.5)+
+  labs(x='Number of explanatory variables',y='Averaged RMSE on test samples',
+       title='Prediction performance and model compexity')
+p5
+
+```
+
+```{r, echo=FALSE, include=FALSE}
+
+# Prediction (model1)
+
+# Use only the predictor variables and outcome
+cps_data <- cps_data %>% select(age, agesq, agecu, grade92, grade92sq, female, wageh, lnwage, race, ownchild, cit_N, cit_N_outlay_A, cit_N_abroad, cit_foreign)
+
+datasummary(wageh + age + agesq + agecu + grade92 + grade92sq + female + ownchild + race ~ Mean + SD + Min + Max + Median + N , data = cps_data )
+
+# new observation
+pred_dat <- tibble(age=35, agesq=35^2, agecu=35^3, grade92=42, grade92sq=42^2, female=0, race=1, ownchild=1, 
+            cit_N=1, cit_N_outlay_A=0, cit_N_abroad=0, 
+            cit_foreign=0, wageh=NA)
+
+
+# Predict price with only 2 predictors (Model1)
+pred1 <- feols(model1, data=cps_data, vcov = 'hetero')
+# Standard errors of residuals
+pr1 <- predict(pred1, cps_data)
+resid_pr1 <- pr1-cps_data$wageh
+summary(resid_pr1)
+# calculate the RMSE by hand:
+sqrt( mean( resid_pr1^2 ) )
+
+# predict value for newly added obs
+pred1_new <- predict(pred1, newdata = pred_dat, se.fit = TRUE, interval = "prediction")
+pr1 <- pred1_new$fit
+pred1_new
+
+```
+
+```{r, echo=FALSE, include=FALSE}
+
+# Predict price with all predictors (Model2)
+pred2 <- feols(model2, data=cps_data,vcov = 'hetero')
+# Standard errors of residuals
+pr2 <- predict(pred2, cps_data)
+resid_pr2 <- pr2-cps_data$wageh
+summary(resid_pr2)
+# predict value for newly added obs
+pred2_new <- predict(pred2, newdata = pred_dat, se.fit = TRUE, interval = "prediction")
+pr2<- pred2_new$fit
+pred2_new 
+
+# Predict price with all predictors (Model3)
+pred3 <- feols(model3, data=cps_data,vcov = 'hetero')
+# Standard errors of residuals
+pr3 <- predict(pred3, cps_data)
+resid_pr3 <- pr3-cps_data$wageh
+summary(resid_pr3)
+# predict value for newly added obs
+pred3_new <- predict(pred3, newdata = pred_dat, se.fit = TRUE, interval = "prediction")
+pr3<- pred3_new$fit
+pred3_new 
+
+# Predict price with all predictors (Model4)
+pred4 <- feols(model4, data=cps_data,vcov = 'hetero')
+# Standard errors of residuals
+pr4 <- predict(pred4, cps_data)
+resid_pr4 <- pr4-cps_data$wageh
+summary(resid_pr4)
+# predict value for newly added obs
+pred4_new <- predict(pred4, newdata = pred_dat, se.fit = TRUE, interval = "prediction")
+pr4<- pred4_new$fit
+pred4_new 
+
+```
+
+```{r, echo=FALSE, include=FALSE}
+
+#get model RMSE for model2
+cps_data$pr2a <- predict( pred2, cps_data)
+rmse2 <- RMSE(cps_data$pr2a,cps_data$wageh)
+rmse2
+
+#get model RMSE for model3
+cps_data$pr3a <- predict( pred3, cps_data)
+rmse3 <- RMSE(cps_data$pr3a,cps_data$wageh)
+rmse3
+
+#get model RMSE for model4
+cps_data$pr4a <- predict( pred4, cps_data)
+rmse4 <- RMSE(cps_data$pr4a,cps_data$wageh)
+rmse4
+
+# Result summary
+sum1 <- cbind(t(pred1_new[,c(1,3,4)]), t(pred2_new[,c(1,3,4)]), t(pred3_new[,c(1,3,4)]), t(pred4_new[,c(1,3,4)]))
+colnames(sum1) <- c('Model1', 'Model2','Model3', 'Model4')
+rownames(sum1) <- c('Predicted', 'PI_low (95%)', 'PI_high (95%)')
+
+sum1
+
+```
+
+```{r echo = F, warning=FALSE, fig.height = 3, fig.align="center"}
+
+# Prediction with 80% PI:
+pred1_new80 <- predict(pred1, newdata = pred_dat, se.fit=TRUE, interval = "prediction", level=0.8)
+p180<- pred1_new80$fit
+
+pred2_new80 <- predict(pred2, newdata = pred_dat, se.fit=TRUE, interval = "prediction", level=0.8)
+p280<- pred2_new80$fit
+
+pred3_new80 <- predict(pred3, newdata = pred_dat, se.fit = TRUE, interval = "prediction", level=0.8)
+p380<- pred3_new80$fit
+
+pred4_new80 <- predict(pred4, newdata = pred_dat, se.fit=TRUE, interval = "prediction", level=0.8)
+p480<- pred4_new80$fit
+
+# Result summary
+sum2 <- cbind(t(pred1_new80[,c(1,3,4)]), t(pred2_new80[,c(1,3,4)]), t(pred3_new80[,c(1,3,4)]), t(pred4_new80[,c(1,3,4)]))
+colnames(sum2) <- c('Model1', 'Model2','Model3', 'Model4')
+rownames(sum2) <- c('Predicted', 'PI_low (80%)', 'PI_high (80%)')
+sum2
+
+# Summarize
+rbind(sum1,sum2[2:3,])
+
+```
