@@ -8,17 +8,6 @@ output:
 
 rm(list=ls())
 
-#Packages ########################### check for delete some librsry
-
-###########################################    progit átdolgozni 
-
-###########################################     summary-table funk lehet kell abbol info szöveg íráshoz
-
-################################################## helper function_t betenni
-
-###################################################### ggplotokról írni lehet az csak masik report
-
-########################################################## set seed- et at allítani 
 
 library(tidyverse)
 library(caret)
@@ -49,10 +38,11 @@ library(lspline)
 library(sandwich)
 library(partykit)
 
+#load data
 data <- read_csv('https://osf.io/3qyut/download')
 
-library(devtools)
-devtools::source_url('https://raw.githubusercontent.com/regulyagoston/BA21_Coding/main/Class_4/codes/seminar_5_auxfuncs.R')
+# Please rewrite the route for the helper function.
+source('c:/Users/benja/ceu/DataAn3/HW3/HW3_helper_func.R')
 
 ```
 
@@ -194,7 +184,7 @@ data <- data %>%
 data <- data %>%
   mutate_at(vars(bs_names), funs("bs"=ifelse(total_assets_bs == 0, 0, ./total_assets_bs)))
 
-# Variables that represent accounting items that cannot be negative (e.g. materials)
+# Variables that represent accounting items that cannot be negative
 zero <-  c("extra_exp_pl", "extra_inc_pl", "inventories_pl", "material_exp_pl", "personnel_exp_pl",
            "curr_liab_bs", "fixed_assets_bs", "liq_assets_bs", "curr_assets_bs", "subscribed_cap_bs",
            "intang_assets_bs")
@@ -283,13 +273,6 @@ datasummary_skim(data, type="categorical")
 ```{r, echo=FALSE, warning=FALSE, fig.width=8, fig.height = 3, fig.align="center" }
 
 # plots for analyzing
-ggplot( data = data , aes( x = fast_growth ) ) +
-  geom_histogram( aes( y = ..count.. / sum( count ) ) , size = 0.1 , fill = 'darkgreen',
-                  bins = 3)+
-  labs(y='Probabilities',x='0: Exists, 1: Defaults')+
-  ylim(0,1) +
-  theme_bw()
-
 ggplot(data=data, aes(x=cagr_sales)) +
   geom_histogram(aes(y = (..count..)/sum(..count..)), binwidth = 10, boundary=0,
                  color = "black", fill = "darkgreen") +
@@ -321,7 +304,7 @@ ggplot(data = data, aes(x=inc_bef_tax_pl, y=as.numeric(fast_growth))) +
 ```
 
 # Modelling
-The analysis aims to predict the fast growth of companies. To be able to predict the yearly CAGR calculated between 2012 and 2013 for each company. The threshold was set for a 30% increase in CAGR, and only those firms who reach it are considered fast-growing companies. In comparison, at the end of the data cleaning, there were almost 2 500 fast-growing companies, which is almost 20% of the total. If the analysis would consider only 1 year of CAGR, that would be a too short period to help the prediction. However, the prediction aims to analyze the firms for the 2 years only. 
+The analysis aims to predict the fast growth of companies. To be able to predict the yearly CAGR calculated between 2012 and 2013 for each company. The threshold was set for a 30% increase in CAGR, and only those firms who reach it are considered fast-growing companies. If the analysis would consider only 1 year of CAGR, that would be a too short period to help the prediction. However, the prediction aims to analyze the firms for the 2 years only. 
 Before the model building and training, the dataset was divided into a train and a holdout set. The holdout dataset contains 20% of the observation, which was randomly selected and the left of the values went into the training dataset. The holdout dataset is used to evaluate the performance of the last model by simulating the use of its unknown, live data. The training dataset is not good for this purpose, since, for each of the models, 5-fold cross-validation was built, sot the dataset was divided 5 times to train and test sets.
 
 
@@ -387,7 +370,7 @@ train_control <- trainControl(
   method = "cv",
   number = 5,
   classProbs = TRUE,
-  summaryFunction = twoClassSummaryExtended, ###################################### helper-ben van
+  summaryFunction = twoClassSummaryExtended,
   savePredictions = TRUE)
 
 ```
@@ -487,7 +470,6 @@ The second version has a continuous graph making easier understandable the Area 
 ```{r, echo=FALSE, warning=FALSE, fig.width=8, fig.height = 3, fig.align="center" }
 
 # Logit + LASSO
-# Calculate AUC for each folds
 CV_AUC_folds <- list()
 
 for (model_name in names(logit_models)) {
@@ -507,7 +489,7 @@ for (model_name in names(logit_models)) {
                                               "AUC" = unlist(auc))
 }
 
-# For each model: average RMSE and average AUC for models ----------------------------------
+# Average RMSE and average AUC for models
 CV_RMSE <- list()
 CV_AUC <- list()
 
@@ -516,7 +498,7 @@ for (model_name in names(logit_models)) {
   CV_AUC[[model_name]] <- mean(CV_AUC_folds[[model_name]]$AUC)
 }
 
-# We pick our preferred model based on that.
+# Pick our preferred model
 nvars <- lapply(logit_models, FUN = function(x) length(x$coefnames))
 nvars[["LASSO"]] <- sum(lasso_coeffs != 0)
 
@@ -546,13 +528,13 @@ CV_AUC[["rf_p"]] <- mean(CV_AUC_folds[["rf_p"]]$AUC)
 rf_summary <- data.frame("CV RMSE" = unlist(CV_RMSE),
                          "CV AUC" = unlist(CV_AUC))
 
-# FOR BEST MODEL
+# For best model
 best_no_loss <- rf_model_p
 
 predicted_probabilities_holdout <- predict(best_no_loss, newdata = data_holdout, type = "prob")
 data_holdout[,"best_no_loss_pred"] <- predicted_probabilities_holdout[,"fast_growth"]
 
-# discrete ROC (with thresholds in steps) on holdout -------------------------------------------------
+# discrete ROC on holdout
 thresholds <- seq(0.05, 0.75, by = 0.025)
 
 cm <- list()
@@ -591,27 +573,22 @@ ggplot(
 
 
 
-# continuous ROC on holdout with best model (Logit 4) -------------------------------------------
+# continuous ROC on holdout with best model
 roc_obj_holdout <- roc(data_holdout$fast_growth, data_holdout$best_no_loss_pred)
 
 createRocPlot(roc_obj_holdout, "best_no_loss_roc_plot_holdout")
-
-
-
-# Confusion table with different tresholds ----------------------------------------------------------
 
 # fast_growth: the threshold 0.5 is used to convert probabilities to binary classes
 class_prediction <- predict(best_no_loss, newdata = data_holdout)
 summary(class_prediction)
 
-# confusion matrix: summarize different type of errors and successfully predicted cases
-# positive = "yes": explicitly specify the positive case
+# confusion matrix
 cm_object1 <- confusionMatrix(class_prediction, data_holdout$fast_growth_f, positive = "fast_growth")
 cm1 <- cm_object1$table
 cm1
 
 
-# a sensible choice: mean of predicted probabilities
+# a sensible choice
 mean_predicted_fast_growth_prob <- mean(data_holdout$best_no_loss_pred)
 mean_predicted_fast_growth_prob
 holdout_prediction <-
@@ -670,7 +647,7 @@ for (model_name in names(logit_models)) {
   best_tresholds[[model_name]] <- mean(unlist(best_tresholds_cv))
   expected_loss[[model_name]] <- mean(unlist(expected_loss_cv))
   
-  # for fold 5
+  # for 5-fold
   logit_cv_rocs[[model_name]] <- roc_obj
   logit_cv_threshold[[model_name]] <- best_treshold
   logit_cv_expected_loss[[model_name]] <- expected_loss_cv[[fold]]
@@ -685,7 +662,6 @@ logit_summary2 <- data.frame("Avg of optimal thresholds" = unlist(best_tresholds
 
 
 # Create plots based on Fold5 in CV
-
 for (model_name in names(logit_cv_rocs)) {
   
   r <- logit_cv_rocs[[model_name]]
@@ -697,7 +673,6 @@ for (model_name in names(logit_cv_rocs)) {
 }
 
 # Pick best model based on average expected loss
-
 best_logit_with_loss <- logit_models[["LASSO"]]
 best_logit_optimal_treshold <- best_tresholds[["LASSO"]]
 
@@ -813,7 +788,7 @@ create_calibration_plot(data_holdout,
 ```
 
 # Summary
-The final model was the LASSO model, which was chosen by its performance. The LASSO model's accuracy is 76.1%, which means that 76.1% of the firms was ranked as good company. The actual, not fast-growing companies were predicted 80.5% correctly and fast-growing companies with 19.5% correctly, but 41% of those firms are fast-growing. The prediction of the fast-growing companies is really hard since its number is almost 8% compared to the total number of the firms. The prediction of the not fast-growing firms is much much easier.
+The final model was the LASSO model, which was chosen by its performance. The LASSO model's accuracy is 76.1%, which means that 86.1% of the firms was ranked as good company. The actual, not fast-growing companies were predicted 80.5% correctly and fast-growing companies with 19.5% correctly, but 41% of those firms are fast-growing. The prediction of the fast-growing companies is really hard since its number is almost 8% compared to the total number of the firms. The prediction of the not fast-growing firms is much much easier.
 This model can be a tool for investors and investment companies to find which firms they should invest in. They can expect to see an amount of potentially fast-growing firms, from which they can expect 41% of those will be high growth firms.
 Investors act and behave differently, so probably they have a different risk tolerance, so they can change it in the loss function. However, those changes will lead to totally different results. A risk-averse attitude will lead to a smaller amount of predicted fast-growing firms and a risk taker attitude to a higher amount.
 

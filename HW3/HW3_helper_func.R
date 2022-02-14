@@ -12,7 +12,7 @@ createRocPlot <- function(r, file_name,  myheight_small = 5.625, mywidth_small =
   
   roc_plot <- ggplot(data = all_coords, aes(x = fpr, y = tpr)) +
     geom_line(color="deepskyblue4", size = 0.7) +
-    geom_area(aes(fill = "deepskyblue2", alpha=0.4), alpha = 0.3, position = 'identity', color = color[1]) +
+    geom_area(aes(fill = "deepskyblue2", alpha=0.4), alpha = 0.3, position = 'identity', color = "black") +
     scale_fill_viridis(discrete = TRUE, begin=0.6, alpha=0.5, guide = FALSE) +
     xlab("False Positive Rate (1-Specifity)") +
     ylab("True Positive Rate (Sensitivity)") +
@@ -20,15 +20,6 @@ createRocPlot <- function(r, file_name,  myheight_small = 5.625, mywidth_small =
     scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, .1), expand = c(0, 0.01)) +
     scale_x_continuous(limits = c(0, 1), breaks = seq(0, 1, .1), expand = c(0.01, 0)) +
     theme_bw()
-  #+    theme(axis.text.x = element_text(size=13), axis.text.y = element_text(size=13),
-  #        axis.title.x = element_text(size=13), axis.title.y = element_text(size=13))
-  save_fig(file_name, output, "small")
-  
-  #ggsave(plot = roc_plot, paste0(file_name, ".png"),      width=mywidth_small, height=myheight_small, dpi=1200)
-  #cairo_ps(filename = paste0(file_name, ".eps"),    #        width = mywidth_small, height = myheight_small, pointsize = 12,    #       fallback_resolution = 1200)
-  #print(roc_plot)
-  #dev.off()
-  
   roc_plot
 }
 
@@ -49,18 +40,17 @@ create_calibration_plot <- function(data, file_name, prob_var, actual_var, y_lab
     summarise(mean_prob = mean(!!as.name(prob_var)), mean_actual = mean(!!as.name(actual_var)), n = n())
   
   p <- ggplot(data = binned_data) +
-    geom_line(aes(mean_prob, mean_actual), color=color[1], size=0.6, show.legend = TRUE) +
-    geom_point(aes(mean_prob,mean_actual), color = color[1], size = 1, shape = 16, alpha = 0.7, show.legend=F, na.rm = TRUE) +
-    geom_segment(x=min(breaks), xend=max(breaks), y=min(breaks), yend=max(breaks), color=color[2], size=0.3) +
-    theme_bg() +
+    geom_line(aes(mean_prob, mean_actual), color= "black", size=0.6, show.legend = TRUE) +
+    geom_point(aes(mean_prob,mean_actual), color = "black", size = 1, shape = 16, alpha = 0.7, show.legend=F, na.rm = TRUE) +
+    geom_segment(x=min(breaks), xend=max(breaks), y=min(breaks), yend=max(breaks), color="blue", size=0.3) +
+    theme_bw() +
     labs(x= "Predicted event probability",
          y= y_lab) +
     coord_cartesian(xlim=c(0,1), ylim=c(0,1))+
     expand_limits(x = 0.01, y = 0.01) +
     scale_y_continuous(expand=c(0.01,0.01),breaks=c(seq(0,1,0.1))) +
     scale_x_continuous(expand=c(0.01,0.01),breaks=c(seq(0,1,0.1))) 
-  
-  save_fig(file_name, output, "small")
+
   p
 }
 
@@ -77,16 +67,15 @@ createLossPlot <- function(r, best_coords, file_name,  myheight_small = 5.625, m
   l <- all_coords[all_coords$threshold == t, "loss"]
   
   loss_plot <- ggplot(data = all_coords, aes(x = threshold, y = loss)) +
-    geom_line(color=color[1], size=0.7) +
+    geom_line(color="black", size=0.7) +
     scale_x_continuous(limits = c(0, 1), breaks = seq(0, 1, by = 0.1)) +
-    geom_vline(xintercept = t , color = color[2] ) +
+    geom_vline(xintercept = t , color = "blue" ) +
     annotate(geom = "text", x = t, y= min(all_coords$loss),
              label=paste0("best threshold: ", round(t,2)),
-             colour=color[2], angle=90, vjust = -1, hjust = -0.5, size = 7) +
+             colour= "blue", angle=90, vjust = -1, hjust = -0.5, size = 7) +
     annotate(geom = "text", x = t, y= l,
              label= round(l, 2), hjust = -0.3, size = 7) +
-    theme_bg()
-  save_fig(file_name, output, "small")
+    theme_bw()
   loss_plot
 }
 
@@ -98,15 +87,14 @@ createRocPlotWithOptimal <- function(r, best_coords, file_name,  myheight_small 
   se <- best_coords$sensitivity[1]
   
   roc_plot <- ggplot(data = all_coords, aes(x = specificity, y = sensitivity)) +
-    geom_line(color=color[1], size=0.7) +
+    geom_line(color="black", size=0.7) +
     scale_y_continuous(breaks = seq(0, 1, by = 0.1)) +
     scale_x_reverse(breaks = seq(0, 1, by = 0.1)) +
     geom_point(aes(x = sp, y = se)) +
     annotate(geom = "text", x = sp, y = se,
              label = paste(round(sp, 2),round(se, 2),sep = ", "),
              hjust = 1, vjust = -1, size = 7) +
-    theme_bg()
-  save_fig(file_name, output, "small")
+    theme_bw()
   roc_plot
 }
 
@@ -117,15 +105,15 @@ getPointsGraph <- function(data, colors) {
     group_by(t_event_6 = cut(t_event, c(-13,-6,0, 1,7,13), right = FALSE)) %>%
     mutate(group_mean = mean(mean)) %>%
     ggplot(data = ., aes(x = t_event, y = mean)) +
-    geom_point(color = color[1]) +
-    geom_line(aes(x = t_event, y = group_mean, group = t_event_6), size = 1, color = color[1]) +
-    geom_vline(xintercept = 0, color = color[3], size=1.5, linetype = "dashed" ) +
+    geom_point(color = "black") +
+    geom_line(aes(x = t_event, y = group_mean, group = t_event_6), size = 1, color = "black") +
+    geom_vline(xintercept = 0, color = "darkgreen", size=1.5, linetype = "dashed" ) +
     labs(y = "Average points", x = "Event time: games before/after manager change") +
     scale_x_continuous(breaks = c(-12, -6, -1, 1, 6, 12), limits = c(-12, 12)) +
     scale_y_continuous(expand=c(0.01,0.01), breaks = seq(0, 1.6, 0.2), limits = c(0, 1.7)) +
     annotate("text", x = 4, y = 0.1, label = "after", size=2.5)+
     annotate("text", x = -6, y = 0.1, label = "before", size=2.5)+
-    theme_bg()
+    theme_bw()
 }
 
 chooseRandomPseudo <- function(data, seed = 27845) {
@@ -153,14 +141,15 @@ getPointsGraphWithPseudo <- function(data, colors) {
               aes(x = t_event, y = group_mean, group = t_event_6), size = 1) +
     geom_line(data = filter(data_plot, countpseudo == 1),
               aes(x = t_event, y = group_mean, group = t_event_6), size = 1) +
-    geom_vline(xintercept = 0, color = color[3], size=1.5, linetype = "dashed" ) +
+    geom_vline(xintercept = 0, color = "darkgreen", size=1.5, linetype = "dashed" ) +
     labs(y = "Average points", x = "Event time: games before/after intervention or pseudo intervention") +
     scale_x_continuous(breaks = c(-12, -6, -1, 1, 6, 12), limits = c(-12, 12)) +
     scale_y_continuous(expand=c(0.01,0.01), breaks = seq(0, 1.6, 0.2), limits = c(0, 1.7)) +
     scale_color_manual(values=color[1:2], labels = c("intervention", "pseudo intervention"), name="") +
     annotate("text", x = 4, y = 0.1, label = "after", size=2.5)+
     annotate("text", x = -6, y = 0.1, label = "before", size=2.5)+
-    theme(legend.position = c(0.5,0.1),           legend.background = element_blank(),           legend.box.background = element_rect(color = "white"))+
-    theme_bg()
+    theme(legend.position = c(0.5,0.1),           legend.background = element_blank(),
+          legend.box.background = element_rect(color = "white"))+
+    theme_bw()
 }
 
